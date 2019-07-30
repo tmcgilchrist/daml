@@ -5,7 +5,7 @@ package com.digitalasset.daml.lf.data
 
 import scala.language.implicitConversions
 
-// Our legacy Nuemric with fix scale 10
+// Our legacy Numeric with fix scale 10
 abstract class DecimalModule {
 
   val scale: Int = 10
