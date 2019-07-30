@@ -36,6 +36,7 @@ import com.digitalasset.platform.sandbox.services.transaction.SandboxEventIdForm
 import com.digitalasset.platform.sandbox.stores.deduplicator.Deduplicator
 import com.digitalasset.platform.sandbox.stores.ledger.LedgerEntry.{Checkpoint, Rejection}
 import com.digitalasset.platform.sandbox.stores.ledger.ScenarioLoader.LedgerEntryOrBump
+import com.digitalasset.platform.sandbox.stores.ledger.sql.LedgerEntryKind
 import com.digitalasset.platform.sandbox.stores.ledger.{Ledger, LedgerEntry, LedgerSnapshot}
 import com.digitalasset.platform.sandbox.stores.{
   ActiveContracts,
@@ -75,7 +76,9 @@ class InMemoryLedger(
 
   private val packageStoreRef = new AtomicReference[InMemoryPackageStore](packageStoreInit)
 
-  override def ledgerEntries(offset: Option[Long]): Source[(Long, LedgerEntry), NotUsed] =
+  override def ledgerEntries(
+      offset: Option[Long],
+      entryKind: LedgerEntryKind): Source[(Long, LedgerEntry), NotUsed] =
     entries.getSource(offset)
 
   // mutable state

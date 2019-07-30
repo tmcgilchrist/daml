@@ -65,6 +65,13 @@ object SqlStartMode {
 
 }
 
+trait LedgerEntryKind
+
+object LedgerEntryKind {
+  case object All extends LedgerEntryKind
+  case object TransactionOnly extends LedgerEntryKind
+}
+
 object SqlLedger {
 
   val noOfShortLivedConnections = 16
@@ -119,8 +126,8 @@ private class SqlLedger(
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  private val dispatcher = Dispatcher[Long, LedgerEntry](
-    RangeSource(ledgerDao.getLedgerEntries(_, _)),
+  private val dispatcher = Dispatcher[Long, LedgerEntry, LedgerEntryKind](
+    les => RangeSource(ledgerDao.getLedgerEntries(_, _, les)),
     0l,
     headAtInitialization
   )
@@ -211,8 +218,10 @@ private class SqlLedger(
     ledgerDao.close()
   }
 
-  override def ledgerEntries(offset: Option[Long]): Source[(Long, LedgerEntry), NotUsed] =
-    dispatcher.startingAt(offset.getOrElse(0))
+  override def ledgerEntries(
+      offset: Option[Long],
+      entryKind: LedgerEntryKind): Source[(Long, LedgerEntry), NotUsed] =
+    dispatcher.startingAt(offset.getOrElse(0), entryKind)
 
   override def ledgerEnd: Long = headRef
 

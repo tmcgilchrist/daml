@@ -11,13 +11,14 @@ import com.github.ghik.silencer.silent
 import org.slf4j.LoggerFactory
 
 import scala.collection.immutable
+import scala.math.Ordering.Implicits._
 
 @SuppressWarnings(Array("org.wartremover.warts.Any"))
-final class DispatcherImpl[Index: Ordering, T](
-    subsource: SubSource[Index, T],
+final class DispatcherImpl[Index: Ordering, T, Env](
+    subsource: Env => SubSource[Index, T],
     zeroIndex: Index,
     headAtInitialization: Index)
-    extends Dispatcher[Index, T] {
+    extends Dispatcher[Index, T, Env] {
 
   private val logger = LoggerFactory.getLogger(getClass)
 
@@ -78,16 +79,19 @@ final class DispatcherImpl[Index: Ordering, T](
         logger.debug("Failed to update Dispatcher HEAD: instance already closed.")
     }
 
-  override def startingAt(start: Index, requestedEnd: Option[Index]): Source[(Index, T), NotUsed] =
-    requestedEnd.fold(startingAt(start))(
+  override def startingAt(
+      start: Index,
+      requestedEnd: Option[Index],
+      env: Env): Source[(Index, T), NotUsed] =
+    requestedEnd.fold(startingAt(start, env))(
       end =>
         if (Ordering[Index].gt(start, end))
           Source.failed(new IllegalArgumentException(
             s"Invalid index section: start '$start' is after end '$end'"))
-        else startingAt(start).takeWhile(_._1 != end, inclusive = true))
+        else startingAt(start, env).takeWhile(_._1 < end, inclusive = true))
 
   // noinspection MatchToPartialFunction, ScalaUnusedSymbol
-  override def startingAt(start: Index): Source[(Index, T), NotUsed] =
+  override def startingAt(start: Index, env: Env): Source[(Index, T), NotUsed] =
     if (indexIsBeforeZero(start))
       Source.failed(
         new IllegalArgumentException(
@@ -98,7 +102,7 @@ final class DispatcherImpl[Index: Ordering, T](
           .map(_ => getHead())
           .statefulMapConcat(() => new ContinuousRangeEmitter(start))
           .flatMapConcat {
-            case (previousHead, head) => subsource(previousHead, head)
+            case (previousHead, head) => subsource(env)(previousHead, head)
           })
 
   private class ContinuousRangeEmitter(private var max: Index) // var doesn't need to be synchronized, it is accessed in a GraphStage.

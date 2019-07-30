@@ -17,6 +17,7 @@ import com.digitalasset.ledger.api.testing.utils.{
   Resource,
   SuiteResourceManagementAroundEach
 }
+import com.digitalasset.platform.sandbox.stores.ledger.sql.LedgerEntryKind
 import com.digitalasset.platform.sandbox.{LedgerResource, MetricsAround}
 import com.digitalasset.platform.testing.MultiResourceBase
 import org.scalatest.concurrent.{AsyncTimeLimitedTests, ScalaFutures}
@@ -91,7 +92,7 @@ class TransactionMRTComplianceIT
         .publishTransaction(submitterInfo, transactionMeta, dummyTransaction)
         .map(_ shouldBe SubmissionResult.Acknowledged)
       ledger
-        .ledgerEntries(None)
+        .ledgerEntries(None, LedgerEntryKind.All)
         .runWith(Sink.head)
         .map(_._2)
         .map {

@@ -74,8 +74,8 @@ private class ReadOnlySqlLedger(
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  private val dispatcher = Dispatcher[Long, LedgerEntry](
-    RangeSource(ledgerDao.getLedgerEntries(_, _)),
+  private val dispatcher = Dispatcher[Long, LedgerEntry, LedgerEntryKind](
+    entryKind => RangeSource(ledgerDao.getLedgerEntries(_, _, entryKind)),
     0l,
     headAtInitialization
   )
@@ -97,8 +97,10 @@ private class ReadOnlySqlLedger(
     ledgerDao.close()
   }
 
-  override def ledgerEntries(offset: Option[Long]): Source[(Long, LedgerEntry), NotUsed] =
-    dispatcher.startingAt(offset.getOrElse(0))
+  override def ledgerEntries(
+      offset: Option[Long],
+      entryKind: LedgerEntryKind): Source[(Long, LedgerEntry), NotUsed] =
+    dispatcher.startingAt(offset.getOrElse(0), entryKind)
 
   override def ledgerEnd: Long = dispatcher.getHead()
 

@@ -77,7 +77,7 @@ class DispatcherSpec
 
   def gen(
       count: Int,
-      publishTo: Option[Dispatcher[Index, Value]] = None,
+      publishTo: Option[Dispatcher[Index, Value, Unit]] = None,
       meanDelayMs: Int = 0): IndexedSeq[(Index, Value)] = {
     def genManyHelper(i: Index, count: Int): Stream[(Index, Value)] = {
       if (count == 0) {
@@ -101,7 +101,10 @@ class DispatcherSpec
     genManyHelper(latest.get(), count).toIndexedSeq.map { case (i, v) => (i, v) }
   }
 
-  def publish(head: Index, dispatcher: Dispatcher[Index, Value], meanDelayMs: Int = 0): Unit = {
+  def publish(
+      head: Index,
+      dispatcher: Dispatcher[Index, Value, Unit],
+      meanDelayMs: Int = 0): Unit = {
     publishedHead.set(head)
     dispatcher.signalNewHead(head)
     Thread.sleep(r.nextInt(meanDelayMs + 1).toLong * 2)
@@ -111,16 +114,20 @@ class DispatcherSpec
     * Collect the actual results between start (exclusive) and stop (inclusive) from the given Dispatcher,
     * then cancels the obtained stream.
     */
-  private def collect(start: Index, stop: Index, src: Dispatcher[Index, Value], delayMs: Int = 0) =
+  private def collect(
+      start: Index,
+      stop: Index,
+      src: Dispatcher[Index, Value, Unit],
+      delayMs: Int = 0) =
     if (delayMs > 0) {
       src
-        .startingAt(start)
+        .startingAt(start, ())
         .delay(Duration(delayMs.toLong, TimeUnit.MILLISECONDS), DelayOverflowStrategy.backpressure)
         .takeWhile(_._1 != stop, inclusive = true)
         .runWith(Sink.collection)
     } else {
       src
-        .startingAt(start)
+        .startingAt(start, ())
         .takeWhile(_._1 != stop, inclusive = true)
         .runWith(Sink.collection)
     }
@@ -153,12 +160,12 @@ class DispatcherSpec
   def vanillaDispatcher(
       begin: Index = genesis,
       end: Index = genesis,
-      steppingMode: SubSource[Index, Value]): Dispatcher[Index, Value] =
-    Dispatcher[Index, Value](steppingMode, begin, end)
+      steppingMode: SubSource[Index, Value]): Dispatcher[Index, Value, Unit] =
+    Dispatcher[Index, Value, Unit](_ => steppingMode, begin, end)
 
-  def slowDispatcher(steppingMode: SubSource[Index, Value]): Dispatcher[Index, Value] =
-    Dispatcher[Index, Value](
-      steppingMode,
+  def slowDispatcher(steppingMode: SubSource[Index, Value]): Dispatcher[Index, Value, Unit] =
+    Dispatcher[Index, Value, Unit](
+      _ => steppingMode,
       genesis,
       genesis
     )
@@ -190,7 +197,7 @@ class DispatcherSpec
 
         dispatcher.signalNewHead(Index(1)) // should not throw
         dispatcher
-          .startingAt(Index(0))
+          .startingAt(Index(0), ())
           .runWith(Sink.ignore)
           .failed
           .map(_ shouldBe a[IllegalStateException])

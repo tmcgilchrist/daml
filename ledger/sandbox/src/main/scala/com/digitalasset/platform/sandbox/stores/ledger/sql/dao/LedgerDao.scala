@@ -23,6 +23,7 @@ import com.digitalasset.platform.sandbox.metrics.MetricsManager
 import com.digitalasset.platform.sandbox.stores.ActiveContracts.ActiveContract
 import com.digitalasset.platform.sandbox.stores.ledger.LedgerEntry
 import com.digitalasset.platform.sandbox.stores.ledger.LedgerEntry.Transaction
+import com.digitalasset.platform.sandbox.stores.ledger.sql.LedgerEntryKind
 
 import scala.collection.immutable
 import scala.concurrent.Future
@@ -144,7 +145,8 @@ trait LedgerReadDao extends AutoCloseable {
     */
   def getLedgerEntries(
       startInclusive: LedgerOffset,
-      endExclusive: LedgerOffset): Source[(LedgerOffset, LedgerEntry), NotUsed]
+      endExclusive: LedgerOffset,
+      entryStream: LedgerEntryKind): Source[(LedgerOffset, LedgerEntry), NotUsed]
 
   /**
     * Returns a snapshot of the ledger.

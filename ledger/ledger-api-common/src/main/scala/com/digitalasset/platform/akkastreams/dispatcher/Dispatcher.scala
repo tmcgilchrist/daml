@@ -15,7 +15,7 @@ import akka.stream.scaladsl.Source
   *
   * Implementations must be thread-safe, so must the callbacks provided to it.
   */
-trait Dispatcher[Index, T] extends AutoCloseable {
+trait Dispatcher[Index, T, Env] extends AutoCloseable {
 
   /** Returns the head index where this Dispatcher is at */
   def getHead(): Index
@@ -24,10 +24,13 @@ trait Dispatcher[Index, T] extends AutoCloseable {
   def signalNewHead(head: Index): Unit
 
   /** Returns a stream of elements with the next index from start (inclusive) to end (exclusive) */
-  def startingAt(startInclusive: Index, endExclusive: Option[Index]): Source[(Index, T), NotUsed]
+  def startingAt(
+      startInclusive: Index,
+      endExclusive: Option[Index],
+      env: Env): Source[(Index, T), NotUsed]
 
   /** Returns a source of all values starting at the given index, in the form (successor index, value) */
-  def startingAt(start: Index): Source[(Index, T), NotUsed]
+  def startingAt(start: Index, env: Env): Source[(Index, T), NotUsed]
 }
 
 object Dispatcher {
@@ -42,9 +45,9 @@ object Dispatcher {
     * @tparam T     The element type
     * @return A new Dispatcher.
     */
-  def apply[Index: Ordering, T](
-      steppingMode: SubSource[Index, T],
+  def apply[Index: Ordering, T, Env](
+      steppingMode: Env => SubSource[Index, T],
       zeroIndex: Index,
-      headAtInitialization: Index): Dispatcher[Index, T] =
-    new DispatcherImpl[Index, T](steppingMode, zeroIndex, headAtInitialization)
+      headAtInitialization: Index): Dispatcher[Index, T, Env] =
+    new DispatcherImpl[Index, T, Env](steppingMode, zeroIndex, headAtInitialization)
 }
