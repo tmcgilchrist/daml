@@ -43,7 +43,7 @@ import com.digitalasset.platform.sandbox.stores.ledger.sql.serialisation.{
   TransactionSerializer,
   ValueSerializer
 }
-import com.digitalasset.platform.sandbox.stores.ledger.sql.util.DbDispatcher
+import com.digitalasset.platform.sandbox.stores.ledger.sql.util.{DbDispatcher, JdbcServerType}
 import com.digitalasset.platform.sandbox.stores.ledger.{Ledger, LedgerEntry, LedgerSnapshot}
 import org.slf4j.LoggerFactory
 
@@ -86,7 +86,7 @@ object SqlLedger {
 
     val dbDispatcher = DbDispatcher(jdbcUrl, noOfShortLivedConnections, noOfStreamingConnections)
     val ledgerDao = LedgerDao.metered(
-      PostgresLedgerDao(
+      JdbcServerType.daoBuilder(jdbcUrl)(
         dbDispatcher,
         ContractSerializer,
         TransactionSerializer,

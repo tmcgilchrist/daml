@@ -30,7 +30,6 @@ import com.digitalasset.platform.sandbox.stores.ledger.sql.SqlLedger.{
 import com.digitalasset.platform.sandbox.stores.ledger.sql.dao.{
   LedgerDao,
   PersistenceEntry,
-  PostgresLedgerDao
 }
 import com.digitalasset.platform.sandbox.stores.ledger.sql.serialisation.{
   ContractSerializer,
@@ -38,7 +37,7 @@ import com.digitalasset.platform.sandbox.stores.ledger.sql.serialisation.{
   TransactionSerializer,
   ValueSerializer
 }
-import com.digitalasset.platform.sandbox.stores.ledger.sql.util.DbDispatcher
+import com.digitalasset.platform.sandbox.stores.ledger.sql.util.{DbDispatcher, JdbcServerType}
 import org.slf4j.LoggerFactory
 import scalaz.syntax.tag._
 
@@ -84,7 +83,7 @@ object PostgresIndexer {
   private def initializeDao(jdbcUrl: String, mm: MetricsManager) = {
     val dbDispatcher = DbDispatcher(jdbcUrl, noOfShortLivedConnections, noOfStreamingConnections)
     val ledgerDao = LedgerDao.metered(
-      PostgresLedgerDao(
+      JdbcServerType.daoBuilder(jdbcUrl)(
         dbDispatcher,
         ContractSerializer,
         TransactionSerializer,

@@ -20,11 +20,14 @@ class FlywayMigrationsSpec extends WordSpec with Matchers {
 
   private val digester = MessageDigest.getInstance("SHA-256")
 
-  private val resourceScanner = new Scanner(
-    configurationBase.getLocations.toList.asJava,
-    getClass.getClassLoader,
-    configurationBase.getEncoding
-  )
+  private val resourceScanner = {
+    val postgresConfig = configurationBase("postgres")
+    new Scanner(
+      postgresConfig.getLocations.toList.asJava,
+      getClass.getClassLoader,
+      postgresConfig.getEncoding
+    )
+  }
 
   "Flyway migration files" should {
     "always have a valid SHA-256 digest file accompanied" in {

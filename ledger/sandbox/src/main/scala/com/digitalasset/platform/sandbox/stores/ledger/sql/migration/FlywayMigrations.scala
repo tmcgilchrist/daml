@@ -3,20 +3,22 @@
 
 package com.digitalasset.platform.sandbox.stores.ledger.sql.migration
 
+import com.digitalasset.platform.sandbox.stores.ledger.sql.util.JdbcServerType
 import javax.sql.DataSource
 import org.flywaydb.core.Flyway
 import org.slf4j.LoggerFactory
 
 import scala.util.control.NonFatal
 
-class FlywayMigrations(ds: DataSource) {
+class FlywayMigrations(ds: DataSource, jdbcUrl: String) {
   import FlywayMigrations._
 
   private val logger = LoggerFactory.getLogger(getClass)
 
   def migrate(): Unit = {
     try {
-      val flyway = configurationBase.dataSource(ds).load()
+      val dbType = JdbcServerType.dbType(jdbcUrl)
+      val flyway = configurationBase(dbType).dataSource(ds).load()
       logger.info(s"running Flyway migration..")
       val stepsTaken = flyway.migrate()
       logger.info(s"Flyway schema migration finished successfully applying ${stepsTaken} steps.")
@@ -33,7 +35,7 @@ class FlywayMigrations(ds: DataSource) {
 
 object FlywayMigrations {
 
-  val configurationBase = Flyway.configure()
+  def configurationBase(dbType: String) = Flyway.configure.locations("classpath:db/migration/" + dbType)
 
-  def apply(ds: DataSource): FlywayMigrations = new FlywayMigrations(ds)
+  def apply(ds: DataSource, jdbcUrl: String): FlywayMigrations = new FlywayMigrations(ds, jdbcUrl)
 }
