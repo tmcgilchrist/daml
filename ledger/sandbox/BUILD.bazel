@@ -62,6 +62,7 @@ compileDependencies = [
     "//3rdparty/jvm/io/dropwizard/metrics:metrics_core",
     "//3rdparty/jvm/io/dropwizard/metrics:metrics_jmx",
     "//3rdparty/jvm/io/zipkin/brave",
+    "//3rdparty/jvm/com/h2database:h2",
 ]
 
 da_scala_library(

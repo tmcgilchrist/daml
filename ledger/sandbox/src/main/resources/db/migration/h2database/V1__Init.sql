@@ -26,8 +26,8 @@ CREATE TABLE ledger_entries
   application_id        varchar,
   submitter             varchar,
   workflow_id           varchar,
-  effective_at          timestamp with time zone,
-  recorded_at           timestamp with time zone     not null,
+  effective_at          timestamp, -- with time zone
+  recorded_at           timestamp                    not null, -- with time zone
   -- The transaction is stored using the .proto definition in
   -- `daml-lf/transaction/src/main/protobuf/com/digitalasset/daml/lf/transaction.proto`, and
   -- encoded using
@@ -40,10 +40,10 @@ CREATE TABLE ledger_entries
   -- that fields that are not supposed to be present are indeed null.
   constraint check_entry
   check (
-    (typ = 'transaction' and transaction_id is not null and command_id is not null and application_id is not null and
-     submitter is not null and effective_at is not null and transaction is not null) or
-    (typ = 'rejection' and command_id is not null and application_id is not null and submitter is not null and
-     rejection_type is not null and rejection_description is not null) or
+    (typ = 'transaction' and transaction_id != null and command_id != null and application_id != null and
+     submitter != null and effective_at != null and transaction != null) or
+    (typ = 'rejection' and command_id != null and application_id != null and submitter != null and
+     rejection_type != null and rejection_description != null) or
     (typ = 'checkpoint'))
 
 );
@@ -64,7 +64,7 @@ CREATE TABLE disclosures (
 -- the entries every time we need to gain information as a contract. It's essentially
 -- a materialized view of the contracts state.
 CREATE TABLE contracts (
-  id             varchar primary key                                not null,
+  id             varchar primary key not null,
   -- this is the transaction id that _originated_ the contract.
   transaction_id varchar             not null,
   -- this is the workflow id of the transaction above. note that this is
@@ -78,9 +78,9 @@ CREATE TABLE contracts (
   -- move to a more compact representation that would need a pointer to
   -- the "top level" value type, and therefore we store the identifier
   -- here separately.
-  package_id     varchar                                            not null,
+  package_id     varchar             not null,
   -- using the QualifiedName#toString format
-  name           varchar                                            not null,
+  name           varchar             not null,
   -- this is denormalized much like `transaction_id` -- see comment above.
   create_offset  bigint              not null,
   -- this on the other hand _cannot_ be easily found out by looking into
@@ -90,7 +90,7 @@ CREATE TABLE contracts (
   -- the serialized contract value, using the definition in
   -- `daml-lf/transaction/src/main/protobuf/com/digitalasset/daml/lf/value.proto`
   -- and the encoder in `ContractSerializer.scala`.
-  contract       bytea                                              not null,
+  contract       bytea               not null,
   -- only present in contracts for templates that have a contract key definition.
   -- encoded using the definition in
   -- `daml-lf/transaction/src/main/protobuf/com/digitalasset/daml/lf/value.proto`.

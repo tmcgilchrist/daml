@@ -1,8 +1,9 @@
 // Copyright (c) 2019 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Note: package name must correspond exactly to the flyway 'locations' setting, which defaults to 'db.migration'
-package db.migration
+// Note: package name must correspond exactly to the flyway 'locations' setting, which defaults to
+// 'db.migration.h2database' for h2 migrations
+package sql.migration.h2database
 
 import java.sql.{Connection, ResultSet}
 
@@ -34,17 +35,17 @@ class V4_1__Collect_Parties extends BaseJavaMigration {
   }
 
   private def loadTransactions(
-      implicit connection: Connection
-  ): Iterator[(Long, Transaction)] = {
+                                implicit connection: Connection
+                              ): Iterator[(Long, Transaction)] = {
 
     val SQL_SELECT_LEDGER_ENTRIES =
       """SELECT
-      |  ledger_offset,
-      |  transaction
-      |FROM
-      |  ledger_entries
-      |WHERE
-      |  typ='transaction'""".stripMargin
+        |  ledger_offset,
+        |  transaction
+        |FROM
+        |  ledger_entries
+        |WHERE
+        |  typ='transaction'""".stripMargin
 
     val rows: ResultSet = connection.createStatement().executeQuery(SQL_SELECT_LEDGER_ENTRIES)
 
@@ -68,7 +69,7 @@ class V4_1__Collect_Parties extends BaseJavaMigration {
   }
 
   private def updateParties(transactions: Iterator[(Long, Transaction)])(
-      implicit conn: Connection): Unit = {
+    implicit conn: Connection): Unit = {
 
     val SQL_INSERT_PARTY =
       """INSERT INTO
@@ -102,25 +103,25 @@ class V4_1__Collect_Parties extends BaseJavaMigration {
   private def getParties(transaction: Transaction): Set[Ref.Party] = {
     transaction
       .fold[Set[Ref.Party]](GenTransaction.TopDown, Set.empty) {
-        case (parties, (_, node)) =>
-          node match {
-            case nf: NodeFetch[AbsoluteContractId] =>
-              parties
-                .union(nf.signatories)
-                .union(nf.stakeholders)
-                .union(nf.actingParties.getOrElse(Set.empty))
-            case nc: NodeCreate.WithTxValue[AbsoluteContractId] =>
-              parties
-                .union(nc.signatories)
-                .union(nc.stakeholders)
-            case ne: NodeExercises.WithTxValue[_, AbsoluteContractId] =>
-              parties
-                .union(ne.signatories)
-                .union(ne.stakeholders)
-                .union(ne.actingParties)
-            case _: NodeLookupByKey.WithTxValue[AbsoluteContractId] =>
-              parties
-          }
-      }
+      case (parties, (_, node)) =>
+        node match {
+          case nf: NodeFetch[AbsoluteContractId] =>
+            parties
+              .union(nf.signatories)
+              .union(nf.stakeholders)
+              .union(nf.actingParties.getOrElse(Set.empty))
+          case nc: NodeCreate.WithTxValue[AbsoluteContractId] =>
+            parties
+              .union(nc.signatories)
+              .union(nc.stakeholders)
+          case ne: NodeExercises.WithTxValue[_, AbsoluteContractId] =>
+            parties
+              .union(ne.signatories)
+              .union(ne.stakeholders)
+              .union(ne.actingParties)
+          case _: NodeLookupByKey.WithTxValue[AbsoluteContractId] =>
+            parties
+        }
+    }
   }
 }

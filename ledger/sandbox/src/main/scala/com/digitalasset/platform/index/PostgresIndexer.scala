@@ -172,13 +172,12 @@ class PostgresIndexer private (
       case PartyAddedToParticipant(party, displayName, _, _) =>
         ledgerDao.storeParty(party, Some(displayName)).map(_ => ())(DEC)
 
-      case PublicPackageUploaded(archive, sourceDescription, _, _) =>
+      case PublicPackageUploaded(archive, sourceDescription, _, recordTime) =>
         val uploadId = UUID.randomUUID().toString
-        val uploadInstant = Instant.now()
         val packages: List[(DamlLf.Archive, v2.PackageDetails)] = List(
           archive -> v2.PackageDetails(
             size = archive.getPayload.size.toLong,
-            knownSince = uploadInstant,
+            knownSince = recordTime.toInstant,
             sourceDescription = sourceDescription
           )
         )

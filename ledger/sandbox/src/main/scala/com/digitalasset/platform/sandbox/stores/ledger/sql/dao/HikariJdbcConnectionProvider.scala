@@ -21,6 +21,8 @@ trait JdbcConnectionProvider extends AutoCloseable {
     * waiting for a free connection from the same pool. */
   def runSQL[T](block: Connection => T): T
 
+  def runSQLWithTracing[T](block: Connection => T, sql: String): T
+
   /** Returns a connection meant to be used for long running streaming queries. The Connection has to be closed manually! */
   def getStreamingConnection(): Connection
 }
@@ -74,6 +76,29 @@ class HikariJdbcConnectionProvider(
       case NonFatal(t) =>
         logger.error(
           "Got an exception while executing a SQL query. Rolling back the transaction.",
+          t)
+        conn.rollback()
+        throw t
+    } finally {
+      conn.close()
+    }
+  }
+
+  override def runSQLWithTracing[T](block: Connection => T, sql: String): T = {
+    val conn = shortLivedDataSource.getConnection()
+    conn.setAutoCommit(false)
+    try {
+      logger.debug(s"About to run SQL: $sql")
+      logger.trace(s"About to run SQL: $sql")
+      val res = block(conn)
+      conn.commit()
+      logger.debug(s"Successfully ran SQL: $sql")
+      logger.trace(s"Successfully ran SQL: $sql")
+      res
+    } catch {
+      case NonFatal(t) =>
+        logger.error(
+          s"Got an exception while executing a SQL query. Rolling back the transaction. SQL: $sql",
           t)
         conn.rollback()
         throw t

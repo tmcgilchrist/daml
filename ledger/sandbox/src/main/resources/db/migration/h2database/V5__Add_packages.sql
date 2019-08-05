@@ -21,7 +21,7 @@ CREATE TABLE packages (
   -- The size of the archive payload (i.e., the serialized DAML-LF package), in bytes
   size               bigint                   not null,
   -- The time when the package was added
-  known_since        timestamp with time zone not null,
+  known_since        timestamp                not null, -- with time zone
   -- The ledger end at the time when the package was added
   ledger_offset      bigint                   not null,
   -- The DAML-LF archive, serialized using the protobuf message `daml_lf.Archive`.

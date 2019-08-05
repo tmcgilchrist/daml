@@ -19,10 +19,13 @@ trait DbDispatcher extends AutoCloseable {
 
   /** Runs an SQL statement in a dedicated Executor. The whole block will be run in a single database transaction.
     *
-    * The isolation level by default is the one defined in the JDBC driver, it can be however overriden per query on
+    * The isolation level by default is the one defined in the JDBC driver, it can be however overridden per query on
     * the Connection. See further details at: https://docs.oracle.com/cd/E19830-01/819-4721/beamv/index.html
-    * */
+    */
   def executeSql[T](sql: Connection => T): Future[T]
+
+  /** Runs an SQL statement in a dedicated Executor with tracing of the executed sql. */
+  def executeSqlWithTracing[T](conn: Connection => T, sql: String): Future[T]
 
   /**
     * Creates a lazy Source, which takes care of:
@@ -62,6 +65,9 @@ private class DbDispatcherImpl(
 
   override def executeSql[T](sql: Connection => T): Future[T] =
     sqlExecutor.runQuery(() => connectionProvider.runSQL(conn => sql(conn)))
+
+  override def executeSqlWithTracing[T](c: Connection => T, sql: String): Future[T] =
+    sqlExecutor.runQuery(() => connectionProvider.runSQLWithTracing(conn => c(conn), sql))
 
   override def runStreamingSql[T](
       sql: Connection => Source[T, Future[Done]]): Source[T, NotUsed] = {

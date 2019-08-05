@@ -38,6 +38,8 @@ import com.digitalasset.platform.sandbox.stores.ledger.sql.serialisation.{
 import com.digitalasset.platform.sandbox.stores.ledger.sql.util.Conversions._
 import com.digitalasset.platform.sandbox.stores.ledger.sql.util.DbDispatcher
 import com.google.common.io.ByteStreams
+import org.h2.api.TimestampWithTimeZone
+import org.h2.util.DateTimeUtils
 import org.slf4j.LoggerFactory
 import scalaz.syntax.tag._
 
@@ -331,27 +333,36 @@ private class H2DatabaseLedgerDao(
   // We therefore don't need to update anything if there is already some data for the given (contract, party) tuple.
   private val SQL_BATCH_INSERT_DIVULGENCES =
     """insert into contract_divulgences(contract_id, party, ledger_offset, transaction_id)
-      |values({contract_id}, {party}, {ledger_offset}, {transaction_id})
-      |on conflict on constraint contract_divulgences_idx
-      |do nothing""".stripMargin
+      |select {contract_id}, {party}, {ledger_offset}, {transaction_id}
+      |where not exists(select * from contract_divulgences where contract_id = {contract_id} and party = {party})
+      |""".stripMargin
+
+  // Same version as above, but with a check that the contract exists - this avoids a referential integrity violation.
+  // TODO: Check with Andreas as to why this could happen / does happen in Canton when called via
+  //  updateActiveContractSet/divulgeAlreadyCommittedContract
+  private val SQL_BATCH_INSERT_DIVULGENCES_IF_CONTRACT_ACTIVE =
+  """insert into contract_divulgences(contract_id, party, ledger_offset, transaction_id)
+    |select {contract_id}, {party}, {ledger_offset}, {transaction_id}
+    |where not exists(select * from contract_divulgences where contract_id = {contract_id} and party = {party})
+    |and {contract_id} in (select id from contracts)
+    |""".stripMargin
 
   private val SQL_BATCH_INSERT_DIVULGENCES_FROM_TRANSACTION_ID =
     """insert into contract_divulgences(contract_id, party, ledger_offset, transaction_id)
       |select {contract_id}, {party}, ledger_offset, {transaction_id}
       |from ledger_entries
-      |where transaction_id={transaction_id}
-      |on conflict on constraint contract_divulgences_idx
-      |do nothing""".stripMargin
+      |where transaction_id={transaction_id} and
+      |not exists(select * from contract_divulgences where contract_id = {contract_id} and party = {party})
+      |""".stripMargin
 
   private val SQL_INSERT_CHECKPOINT =
     SQL(
       "insert into ledger_entries(typ, ledger_offset, recorded_at) values('checkpoint', {ledger_offset}, {recorded_at})")
 
   private val SQL_IMPLICITLY_INSERT_PARTIES =
-    """insert into parties(party, explicit, ledger_offset)
-        |values({name}, {explicit}, {ledger_offset})
-        |on conflict (party)
-        |do nothing
+    s"""insert into parties(party, explicit, ledger_offset)
+        |select {name}, {explicit}, {ledger_offset}
+        |where {name} not in (select party from parties)
         |""".stripMargin
 
   /**
@@ -430,7 +441,7 @@ private class H2DatabaseLedgerDao(
           // Do we need here the equivalent to 'contracts.intersectWith(global)', used in the in-memory
           // implementation of implicitlyDisclose?
           if (divulgenceParams.nonEmpty) {
-            executeBatchSql(SQL_BATCH_INSERT_DIVULGENCES, divulgenceParams)
+            executeBatchSql(SQL_BATCH_INSERT_DIVULGENCES_IF_CONTRACT_ACTIVE, divulgenceParams)
           }
           this
         }
@@ -467,9 +478,9 @@ private class H2DatabaseLedgerDao(
         "command_id" -> (tx.commandId: Option[String]),
         "application_id" -> (tx.applicationId: Option[String]),
         "submitter" -> (tx.submittingParty: Option[String]),
-        "workflow_id" -> tx.workflowId.getOrElse(""),
-        "effective_at" -> utc(tx.ledgerEffectiveTime),
-        "recorded_at" -> utc(tx.recordedAt),
+        "workflow_id" -> tx.workflowId.getOrElse("unspecified workflow"), // TODO: Not allowed to insert an empty string - not a valid ledger string
+        "effective_at" -> tx.ledgerEffectiveTime,
+        "recorded_at" -> tx.recordedAt,
         "transaction" -> transactionSerializer
           .serialiseTransaction(tx.transaction)
           .fold(
@@ -522,7 +533,7 @@ private class H2DatabaseLedgerDao(
   private def storeCheckpoint(offset: Long, checkpoint: LedgerEntry.Checkpoint)(
       implicit connection: Connection): Unit = {
     SQL_INSERT_CHECKPOINT
-      .on("ledger_offset" -> offset, "recorded_at" -> utc(checkpoint.recordedAt))
+      .on("ledger_offset" -> offset, "recorded_at" -> checkpoint.recordedAt)
       .execute()
 
     ()
@@ -761,26 +772,35 @@ private class H2DatabaseLedgerDao(
 
   override def lookupLedgerEntry(offset: Long): Future[Option[LedgerEntry]] = {
     dbDispatcher
-      .executeSql { implicit conn =>
-        SQL_SELECT_ENTRY
-          .on("ledger_offset" -> offset)
-          .as(EntryParser.singleOpt)
-          .map(toLedgerEntry)
-          .map(_._2)
-      }
+      .executeSqlWithTracing(
+        { implicit conn =>
+          SQL_SELECT_ENTRY
+            .on("ledger_offset" -> offset)
+            .as(EntryParser.singleOpt)
+            .map(toLedgerEntry)
+            .map(_._2)
+        },
+        SQL_SELECT_ENTRY.on("ledger_offset" -> offset).sql.toString
+      )
   }
 
   override def lookupTransaction(
       transactionId: TransactionId): Future[Option[(LedgerOffset, LedgerEntry.Transaction)]] = {
-    dbDispatcher.executeSql { implicit conn =>
+    dbDispatcher.executeSqlWithTracing(
+      { implicit conn =>
+        SQL_SELECT_TRANSACTION
+          .on("transaction_id" -> (transactionId: String))
+          .as(EntryParser.singleOpt)
+          .map(toLedgerEntry)
+          .collect {
+            case (offset, t: LedgerEntry.Transaction) => offset -> t
+          }
+      },
       SQL_SELECT_TRANSACTION
         .on("transaction_id" -> (transactionId: String))
-        .as(EntryParser.singleOpt)
-        .map(toLedgerEntry)
-        .collect {
-          case (offset, t: LedgerEntry.Transaction) => offset -> t
-        }
-    }
+        .sql
+        .toString
+    )
   }
 
   private val ContractDataParser = (ledgerString("id")
@@ -816,9 +836,9 @@ private class H2DatabaseLedgerDao(
       .map(mapContractDetails)
 
   override def lookupActiveContract(contractId: AbsoluteContractId): Future[Option[Contract]] =
-    dbDispatcher.executeSql { implicit conn =>
+    dbDispatcher.executeSqlWithTracing({ implicit conn =>
       lookupActiveContractSync(contractId)
-    }
+    }, SQL_SELECT_CONTRACT.on("contract_id" -> contractId.coid).sql.toString)
 
   private def mapContractDetails(
       contractResult: (
@@ -908,12 +928,19 @@ private class H2DatabaseLedgerDao(
       PageSize,
       (startI, endE) => {
         Source
-          .fromFuture(dbDispatcher.executeSql { implicit conn =>
-            SQL_GET_LEDGER_ENTRIES
-              .on("startInclusive" -> startI, "endExclusive" -> endE)
-              .as(EntryParser.*)
-              .map(toLedgerEntry)
-          })
+          .fromFuture(
+            dbDispatcher.executeSqlWithTracing(
+              { implicit conn =>
+                SQL_GET_LEDGER_ENTRIES
+                  .on("startInclusive" -> startI, "endExclusive" -> endE)
+                  .as(EntryParser.*)
+                  .map(toLedgerEntry)
+              },
+              SQL_GET_LEDGER_ENTRIES
+                .on("startInclusive" -> startI, "endExclusive" -> endE)
+                .sql
+                .toString + s" start ${startI.toString} end ${endE.toString}"
+            ))
           .flatMapConcat(Source(_))
       }
     )
@@ -1060,31 +1087,34 @@ private class H2DatabaseLedgerDao(
     requirements.fold(
       Future.failed,
       _ =>
-        dbDispatcher.executeSql { implicit conn =>
-          Try {
-            val namedPackageParams = packages
-              .map(
-                p =>
-                  Seq[NamedParameter](
-                    "package_id" -> p._1.getHash,
-                    "upload_id" -> uploadId,
-                    "source_description" -> p._2.sourceDescription,
-                    "size" -> p._2.size,
-                    "known_since" -> utc(p._2.knownSince),
-                    "package" -> p._1.toByteArray
+        dbDispatcher.executeSqlWithTracing(
+          { implicit conn =>
+            Try {
+              val namedPackageParams = packages
+                .map(
+                  p =>
+                    Seq[NamedParameter](
+                      "package_id" -> p._1.getHash,
+                      "upload_id" -> uploadId,
+                      "source_description" -> p._2.sourceDescription,
+                      "size" -> p._2.size,
+                      "known_since" -> p._2.knownSince,
+                      "package" -> p._1.toByteArray
+                  )
                 )
+              executeBatchSql(
+                SQL_INSERT_PACKAGE,
+                namedPackageParams
               )
-            executeBatchSql(
-              SQL_INSERT_PACKAGE,
-              namedPackageParams
-            )
-            PersistenceResponse.Ok
-          }.recover {
-            case NonFatal(e) if e.getMessage.contains("duplicate key") =>
-              conn.rollback()
-              PersistenceResponse.Duplicate
-          }.get
-      }
+              PersistenceResponse.Ok
+            }.recover {
+              case NonFatal(e) if e.getMessage.contains("Unique index or primary key violation") =>
+                conn.rollback()
+                PersistenceResponse.Duplicate
+            }.get
+          },
+          SQL_INSERT_PACKAGE + " " + packages.map { case (a, d) => a.getHash }.mkString(" - ")
+      )
     )
   }
 
@@ -1100,6 +1130,9 @@ private class H2DatabaseLedgerDao(
       """.stripMargin)
 
   private def utc(instant: Instant): ZonedDateTime = instant.atZone(ZoneId.of("UTC"))
+  private def instant(utc: TimestampWithTimeZone): Instant =
+    Instant.ofEpochSecond(
+      DateTimeUtils.getMillis(utc.getYMD, utc.getNanosSinceMidnight, utc.getTimeZoneOffsetMins))
 
   override def reset(): Future[Unit] =
     dbDispatcher.executeSql { implicit conn =>
