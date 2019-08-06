@@ -4,7 +4,6 @@ package com.digitalasset.platform.sandbox.stores.ledger.sql.dao
 
 import java.io.InputStream
 import java.sql.Connection
-import java.time.{Instant, ZonedDateTime, ZoneId}
 import java.util.Date
 
 import akka.stream.Materializer
@@ -38,8 +37,6 @@ import com.digitalasset.platform.sandbox.stores.ledger.sql.serialisation.{
 import com.digitalasset.platform.sandbox.stores.ledger.sql.util.Conversions._
 import com.digitalasset.platform.sandbox.stores.ledger.sql.util.DbDispatcher
 import com.google.common.io.ByteStreams
-import org.h2.api.TimestampWithTimeZone
-import org.h2.util.DateTimeUtils
 import org.slf4j.LoggerFactory
 import scalaz.syntax.tag._
 
@@ -1128,11 +1125,6 @@ private class H2DatabaseLedgerDao(
         |truncate parameters cascade;
         |truncate contract_keys cascade;
       """.stripMargin)
-
-  private def utc(instant: Instant): ZonedDateTime = instant.atZone(ZoneId.of("UTC"))
-  private def instant(utc: TimestampWithTimeZone): Instant =
-    Instant.ofEpochSecond(
-      DateTimeUtils.getMillis(utc.getYMD, utc.getNanosSinceMidnight, utc.getTimeZoneOffsetMins))
 
   override def reset(): Future[Unit] =
     dbDispatcher.executeSql { implicit conn =>
