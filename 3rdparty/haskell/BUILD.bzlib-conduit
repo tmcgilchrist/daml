@@ -1,0 +1,28 @@
+package(default_visibility = ["//visibility:public"])
+
+load("@io_tweag_rules_haskell//haskell:haskell.bzl", "haskell_library")
+load("@ai_formation_hazel//:hazel.bzl", "hazel_library")
+
+haskell_library(
+  name = "lib",
+  visibility = ["//visibility:public"],
+  srcs = ["src/Data/Conduit/BZlib.hs", "src/Data/Conduit/BZlib/Internal.hsc"],
+  deps = ["@haskell_base//:lib", "@haskell_bindings__d_s_l_//:lib", "@haskell_bytestring//:lib", "@haskell_conduit//:lib", "@haskell_data__default__class//:lib", "@haskell_mtl//:lib", "@haskell_resourcet//:lib", "@haskell_bzlib__conduit//:bzlib-conduit-cbits"] + ["@bzip2//:bz2"],
+  compiler_flags = ["-XHaskell2010", "-w", "-Wwarn"],
+  hidden_modules = [],
+  package_name = "bzlib-conduit",
+  version = "0.3.0.1",
+)
+
+
+cc_library(
+  name = "bzlib-conduit-cbits",
+  visibility = ["//visibility:public"],
+  deps = ["@haskell_rts//:lib"] + ["@haskell_base//:base-cbits", "@haskell_bindings__d_s_l_//:bindings-DSL-cbits", "@haskell_bytestring//:bytestring-cbits", "@haskell_conduit//:conduit-cbits", "@haskell_data__default__class//:data-default-class-cbits", "@haskell_mtl//:mtl-cbits", "@haskell_resourcet//:resourcet-cbits"] + [] + ["@bzip2//:bz2"],
+  defines = [],
+  includes = [],
+  copts = ["-D__GLASGOW_HASKELL__=806", "-w"],
+  srcs = [],
+  linkstatic = select({"@bazel_tools//src/conditions:windows": True, "//conditions:default": False}),
+  textual_hdrs = ["@haskell_bzlib__conduit//:ChangeLog.md", "@haskell_bzlib__conduit//:README.md"],
+)

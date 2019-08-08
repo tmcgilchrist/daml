@@ -59,7 +59,7 @@ java_library(
 genrule(
     name = "daml_lf_haskell_proto_src",
     srcs = glob(["da/*.proto"]),
-    outs = ["Da/DamlLf.hs"] + ["Da/DamlLf%s.hs" % v.title() for v in LF_MAJOR_VERSIONS],
+    outs = ["Da/DamlLf%s.hs" % v.title() for v in LF_MAJOR_VERSIONS],
     cmd =
         "ORIGPWD=`pwd`\ncd daml-lf/archive\n" +
         "\n".join(
@@ -75,8 +75,8 @@ genrule(
 
 da_haskell_library(
     name = "daml_lf_haskell_proto",
-    srcs = [":daml_lf_haskell_proto_src"],
     compiler_flags = ["-O0"],  # disable optimization as this is otherwise way too slow to compile.
+    srcs = glob(["hs-src/Da/DamlLf.hs"]) + [":daml_lf_haskell_proto_src"],
     hazel_deps = [
         "base",
         "bytestring",

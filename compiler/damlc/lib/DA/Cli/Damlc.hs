@@ -7,12 +7,12 @@
 -- | Main entry-point of the DAML compiler
 module DA.Cli.Damlc (main) where
 
-import Codec.Archive.Zip
+import qualified "zip-archive" Codec.Archive.Zip as ZipArchive
+import qualified "zip" Codec.Archive.Zip as Zip
 import Control.Exception
 import Control.Exception.Safe (catchIO)
 import Control.Monad.Except
 import Control.Monad.Extra (whenM)
-import qualified "cryptonite" Crypto.Hash as Crypto
 import DA.Bazel.Runfiles
 import DA.Cli.Args
 import DA.Cli.Damlc.Base
@@ -40,7 +40,6 @@ import DA.Daml.Project.Consts
 import DA.Daml.Project.Types (ConfigError, ProjectPath(..))
 import qualified Da.DamlLf as PLF
 import qualified Data.Aeson.Encode.Pretty as Aeson.Pretty
-import Data.ByteArray.Encoding (Base(Base16), convertToBase)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BSL
@@ -53,7 +52,6 @@ import qualified Data.Map.Strict as MS
 import Data.Maybe
 import qualified Data.NameMap as NM
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import Development.IDE.Core.API
 import Development.IDE.Core.Service (runAction)
 import Development.IDE.Core.Shake
@@ -204,13 +202,11 @@ cmdPackage numProcessors =
        progDesc "Compile the DAML program into a DAML Archive (DAR)"
     <> fullDesc
   where
-    dumpPom = fmap DumpPom $ switch $ help "Write out pom and sha256 files" <> long "dump-pom"
     cmd = execPackage
         <$> projectOpts "daml damlc package"
         <*> inputFileOpt
         <*> optionsParser numProcessors (EnableScenarioService False) (Just <$> packageNameOpt)
         <*> optionalOutputFileOpt
-        <*> dumpPom
         <*> optFromDalf
 
     optFromDalf :: Parser FromDalf
@@ -362,9 +358,6 @@ execLint inputFile opts =
          DlintEnabled _ _ -> opts
          DlintDisabled  -> opts{optDlintUsage=DlintEnabled defaultDir True}
 
-newtype DumpPom = DumpPom{unDumpPom :: Bool}
-
-
 -- | Parse the daml.yaml for package specific config fields.
 parseProjectConfig :: ProjectConfig -> Either ConfigError PackageConfigFields
 parseProjectConfig project = do
@@ -407,34 +400,34 @@ createProjectPackageDb lfVersion fps = do
     let fps0 = filter (`notElem` basePackages) fps
     forM_ fps0 $ \fp -> do
         bs <- BSL.readFile fp
-        let archive = toArchive bs
+        let archive = ZipArchive.toArchive bs
         let confFiles =
                 [ e
-                | e <- zEntries archive
-                , ".conf" `isExtensionOf` eRelativePath e
+                | e <- ZipArchive.zEntries archive
+                , ".conf" `isExtensionOf` ZipArchive.eRelativePath e
                 ]
         let dalfs =
                 [ e
-                | e <- zEntries archive
-                , ".dalf" `isExtensionOf` eRelativePath e
+                | e <- ZipArchive.zEntries archive
+                , ".dalf" `isExtensionOf` ZipArchive.eRelativePath e
                 ]
         let srcs =
                 [ e
-                | e <- zEntries archive
-                , takeExtension (eRelativePath e) `elem`
+                | e <- ZipArchive.zEntries archive
+                , takeExtension (ZipArchive.eRelativePath e) `elem`
                       [".daml", ".hie", ".hi"]
                 ]
         forM_ dalfs $ \dalf -> do
-            let path = dbPath </> eRelativePath dalf
+            let path = dbPath </> ZipArchive.eRelativePath dalf
             createDirectoryIfMissing True (takeDirectory path)
-            BSL.writeFile path (fromEntry dalf)
+            BSL.writeFile path (ZipArchive.fromEntry dalf)
         forM_ confFiles $ \conf ->
             BSL.writeFile
-                (dbPath </> "package.conf.d" </> (takeFileName $ eRelativePath conf))
-                (fromEntry conf)
+                (dbPath </> "package.conf.d" </> (takeFileName $ ZipArchive.eRelativePath conf))
+                (ZipArchive.fromEntry conf)
         forM_ srcs $ \src -> do
-            let path = dbPath </> eRelativePath src
-            write path (fromEntry src)
+            let path = dbPath </> ZipArchive.eRelativePath src
+            write path (ZipArchive.fromEntry src)
     ghcPkgPath <-
         locateRunfiles (mainWorkspace </> "compiler" </> "damlc" </> "ghc-pkg")
     callProcess
@@ -470,7 +463,7 @@ execBuild projectOpts options mbOutFile initPkgDb = withProjectRoot' projectOpts
             dar <- mbErr "ERROR: Creation of DAR file failed." mbDar
             let fp = targetFilePath pName
             createDirectoryIfMissing True $ takeDirectory fp
-            BSL.writeFile fp dar
+            Zip.createArchive fp dar
             putStrLn $ "Created " <> fp <> "."
     where
         -- The default output filename is based on Maven coordinates if
@@ -505,10 +498,9 @@ execPackage:: ProjectOpts
             -> FilePath -- ^ input file
             -> Options
             -> Maybe FilePath
-            -> DumpPom
             -> FromDalf
             -> IO ()
-execPackage projectOpts filePath opts mbOutFile dumpPom dalfInput = withProjectRoot' projectOpts $ \relativize -> do
+execPackage projectOpts filePath opts mbOutFile dalfInput = withProjectRoot' projectOpts $ \relativize -> do
     loggerH <- getLogger opts "package"
     filePath <- relativize filePath
     opts' <- mkOptions opts
@@ -533,28 +525,13 @@ execPackage projectOpts filePath opts mbOutFile dumpPom dalfInput = withProjectR
               exitFailure
           Just dar -> do
             createDirectoryIfMissing True $ takeDirectory targetFilePath
-            BSL.writeFile targetFilePath dar
+            Zip.createArchive targetFilePath dar
             putStrLn $ "Created " <> targetFilePath <> "."
-            when (unDumpPom dumpPom) $ createPomAndSHA256 $ dar
   where
     -- This is somewhat ugly but our CLI parser guarantees that this will always be present.
     -- We could parametrize CliOptions by whether the package name is optional
     -- but I don’t think that is worth the complexity of carrying around a type parameter.
     name = fromMaybe (error "Internal error: Package name was not present") (optMbPackageName opts)
-    pomContents groupId artifactId version =
-        TE.encodeUtf8 $ T.pack $
-          "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
-          \<project xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd\"\
-          \ xmlns=\"http://maven.apache.org/POM/4.0.0\"\
-          \ xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n\
-          \  <modelVersion>4.0.0</modelVersion>\n\
-          \  <groupId>" <> groupId <> "</groupId>\n\
-          \  <artifactId>" <> artifactId <> "</artifactId>\n\
-          \  <version>" <> version <> "</version>\n\
-          \  <name>" <> artifactId <> "</name>\n\
-          \  <type>dar</type>\n\
-          \  <description>A Digital Asset DAML package</description>\n\
-          \</project>"
 
     -- The default output filename is based on Maven coordinates if
     -- the package name is specified via them, otherwise we use the
@@ -565,28 +542,6 @@ execPackage projectOpts filePath opts mbOutFile dumpPom dalfInput = withProjectR
         _otherwise -> name <> ".dar"
 
     targetFilePath = fromMaybe defaultDarFile mbOutFile
-    targetDir = takeDirectory targetFilePath
-
-    createPomAndSHA256 darContent = do
-      case Split.splitOn ":" name of
-          [g, a, v] -> do
-            let basePath = targetDir </> a <> "-" <> v
-            let pomPath = basePath <.> "pom"
-            let pomContent = pomContents g a v
-            let writeAndAnnounce path content = do
-                  B.writeFile path content
-                  putStrLn $ "Created " <> path <> "."
-
-            writeAndAnnounce pomPath pomContent
-            writeAndAnnounce (basePath <.> "dar" <.> "sha256")
-              (convertToBase Base16 $ Crypto.hashlazy @Crypto.SHA256 darContent)
-            writeAndAnnounce (basePath <.> "pom" <.> "sha256")
-              (convertToBase Base16 $ Crypto.hash @B.ByteString @Crypto.SHA256 pomContent)
-          _ -> do
-            putErrLn $ "ERROR: Not creating pom file as package name '" <> name <> "' is not a valid Maven coordinate (expected '<groupId>:<artifactId>:<version>')"
-            exitFailure
-
-    putErrLn = hPutStrLn stderr
 
 execInspect :: FilePath -> FilePath -> Bool -> Command
 execInspect inFile outFile jsonOutput = do
@@ -616,21 +571,21 @@ execInspectDar inFile = do
     bytes <- B.readFile inFile
 
     putStrLn "DAR archive contains the following files: \n"
-    let dar = toArchive $ BSL.fromStrict bytes
-    let files = [eRelativePath e | e <- zEntries dar]
+    let dar = ZipArchive.toArchive $ BSL.fromStrict bytes
+    let files = [ZipArchive.eRelativePath e | e <- ZipArchive.zEntries dar]
     mapM_ putStrLn files
 
     putStrLn "\nDAR archive contains the following packages: \n"
     let dalfEntries =
-            [e | e <- zEntries dar, ".dalf" `isExtensionOf` eRelativePath e]
+            [e | e <- ZipArchive.zEntries dar, ".dalf" `isExtensionOf` ZipArchive.eRelativePath e]
     forM_ dalfEntries $ \dalfEntry -> do
-        let dalf = BSL.toStrict $ fromEntry dalfEntry
+        let dalf = BSL.toStrict $ ZipArchive.fromEntry dalfEntry
         (pkgId, _lfPkg) <-
             errorOnLeft
-                ("Cannot decode package " <> eRelativePath dalfEntry)
+                ("Cannot decode package " <> ZipArchive.eRelativePath dalfEntry)
                 (Archive.decodeArchive dalf)
         putStrLn $
-            (dropExtension $ takeFileName $ eRelativePath dalfEntry) <> " " <>
+            (dropExtension $ takeFileName $ ZipArchive.eRelativePath dalfEntry) <> " " <>
             show (LF.unPackageId pkgId)
 
 execMigrate ::
@@ -714,7 +669,7 @@ execMigrate projectOpts opts0 inFile1_ inFile2_ mbDir = do
             forM [inFile1, inFile2] $ \inFile -> do
                 bytes <- B.readFile inFile
                 let pkgName = takeBaseName inFile
-                let dar = toArchive $ BSL.fromStrict bytes
+                let dar = ZipArchive.toArchive $ BSL.fromStrict bytes
                 -- get the main pkg
                 manifest <- getEntry "META-INF/MANIFEST.MF" dar
                 let mainDalfPath =
@@ -723,11 +678,11 @@ execMigrate projectOpts opts0 inFile1_ inFile2_ mbDir = do
                             [ main
                             | l <-
                                   lines $
-                                  replace "\n " "" $ BSC.unpack $ BSL.toStrict $ fromEntry manifest
+                                  replace "\n " "" $ BSC.unpack $ BSL.toStrict $ ZipArchive.fromEntry manifest
                             , Just main <- [stripPrefix "Main-Dalf: " l]
                             ]
                 mainDalfEntry <- getEntry mainDalfPath dar
-                (mainPkgId, mainLfPkg) <- decode $ BSL.toStrict $ fromEntry mainDalfEntry
+                (mainPkgId, mainLfPkg) <- decode $ BSL.toStrict $ ZipArchive.fromEntry mainDalfEntry
                 pure (pkgName, mainPkgId, mainLfPkg)
         -- generate upgrade modules and instances modules
         let eqModNames =
@@ -779,10 +734,10 @@ execMigrate projectOpts opts0 inFile1_ inFile2_ mbDir = do
         NM.lookup modName $ LF.packageModules pkg
 
 -- | Get an entry from a dar or fail.
-getEntry :: FilePath -> Archive -> IO Entry
+getEntry :: FilePath -> ZipArchive.Archive -> IO ZipArchive.Entry
 getEntry fp dar =
     maybe (fail $ "Package does not contain " <> fp) pure $
-    findEntryByPath fp dar
+    ZipArchive.findEntryByPath fp dar
 
 -- | Merge two dars. The idea is that the second dar is a delta. Hence, we take the main in the
 -- manifest from the first.
@@ -791,29 +746,29 @@ execMergeDars darFp1 darFp2 mbOutFp = do
     let outFp = fromMaybe darFp1 mbOutFp
     bytes1 <- B.readFile darFp1
     bytes2 <- B.readFile darFp2
-    let dar1 = toArchive $ BSL.fromStrict bytes1
-    let dar2 = toArchive $ BSL.fromStrict bytes2
+    let dar1 = ZipArchive.toArchive $ BSL.fromStrict bytes1
+    let dar2 = ZipArchive.toArchive $ BSL.fromStrict bytes2
     mf <- mergeManifests dar1 dar2
     let merged =
-            Archive
-                (nubSortOn eRelativePath $ mf : zEntries dar1 ++ zEntries dar2)
+            ZipArchive.Archive
+                (nubSortOn ZipArchive.eRelativePath $ mf : ZipArchive.zEntries dar1 ++ ZipArchive.zEntries dar2)
                 -- nubSortOn keeps the first occurence
                 Nothing
                 BSL.empty
-    BSL.writeFile outFp $ fromArchive merged
+    BSL.writeFile outFp $ ZipArchive.fromArchive merged
   where
     mergeManifests dar1 dar2 = do
         let mfPath = "META-INF/MANIFEST.MF"
         let dalfNames =
                 nubSort
                     [ takeFileName p
-                    | e <- zEntries dar1 ++ zEntries dar2
-                    , let p = eRelativePath e
+                    | e <- ZipArchive.zEntries dar1 ++ ZipArchive.zEntries dar2
+                    , let p = ZipArchive.eRelativePath e
                     , ".dalf" `isExtensionOf` p
                     ]
         m1 <- getEntry mfPath dar1
         let m' = do
-                l <- lines $ BSC.unpack $ BSL.toStrict $ fromEntry m1
+                l <- lines $ BSC.unpack $ BSL.toStrict $ ZipArchive.fromEntry m1
                 pure $
                     maybe
                         l
@@ -821,7 +776,7 @@ execMergeDars darFp1 darFp2 mbOutFp = do
                          breakAt72Chars $
                          "Dalfs: " <> intercalate ", " dalfNames)
                         (stripPrefix "Dalfs:" l)
-        pure $ toEntry mfPath 0 $ BSL.fromStrict $ BSC.pack $ unlines m'
+        pure $ ZipArchive.toEntry mfPath 0 $ BSL.fromStrict $ BSC.pack $ unlines m'
 
 execDocTest :: Options -> [FilePath] -> IO ()
 execDocTest opts files = do

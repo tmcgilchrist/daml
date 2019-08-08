@@ -44,14 +44,14 @@ decodeArchive bytes = do
 
     computedHash <- case ProtoLF.archiveHashFunction archive of
       Proto.Enumerated (Right ProtoLF.HashFunctionSHA256) ->
-        Right $ encodeHash (BA.convert (Crypto.hash @_ @Crypto.SHA256 payloadBytes) :: BS.ByteString)
+        Right $ encodeHash (BA.convert (Crypto.hashlazy @Crypto.SHA256 payloadBytes) :: BS.ByteString)
       Proto.Enumerated (Left idx) ->
         Left (UnknownHashFunction idx)
 
     when (computedHash /= archiveHash) $
       Left (HashMismatch archiveHash computedHash)
 
-    payload <- over _Left (ProtobufError . show) $ Proto.fromByteString payloadBytes
+    payload <- over _Left (ProtobufError . show) $ Proto.fromByteString $ BSL.toStrict payloadBytes
     package <- over _Left (ProtobufError. show) $ Decode.decodePayload payload
     return (LF.PackageId archiveHash, package)
 
@@ -66,8 +66,8 @@ encodePackageHash = snd . encodeArchiveAndHash
 
 encodeArchiveAndHash :: LF.Package -> (BSL.ByteString, T.Text)
 encodeArchiveAndHash package =
-    let payload = BSL.toStrict $ Proto.toLazyByteString $ Encode.encodePayload package
-        hash = encodeHash (BA.convert (Crypto.hash @_ @Crypto.SHA256 payload) :: BS.ByteString)
+    let payload = Proto.toLazyByteString $ Encode.encodePayload package
+        hash = encodeHash (BA.convert (Crypto.hashlazy @Crypto.SHA256 payload) :: BS.ByteString)
         archive =
           ProtoLF.Archive
           { ProtoLF.archivePayload = payload

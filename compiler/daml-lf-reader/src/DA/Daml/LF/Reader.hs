@@ -8,7 +8,7 @@ module DA.Daml.LF.Reader
     , multiLineContent
     ) where
 
-import Codec.Archive.Zip
+import "zip-archive" Codec.Archive.Zip
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.UTF8 as UTF8
 import qualified Data.HashMap.Strict as Map

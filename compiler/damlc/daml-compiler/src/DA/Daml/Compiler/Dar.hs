@@ -7,13 +7,14 @@ module DA.Daml.Compiler.Dar
     , PackageConfigFields(..)
     ) where
 
-import qualified Codec.Archive.Zip as Zip
+import qualified "zip" Codec.Archive.Zip as Zip
 import Control.Monad.Extra
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Char8 as BSC
+import Data.Conduit.Combinators (sourceLazy)
 import Data.List.Extra
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -77,7 +78,7 @@ buildDar ::
     -> PackageConfigFields
     -> NormalizedFilePath
     -> FromDalf
-    -> IO (Maybe BSL.ByteString)
+    -> IO (Maybe (Zip.ZipArchive ()))
 buildDar service pkgConf@PackageConfigFields {..} ifDir dalfInput = do
     liftIO $
         IdeLogger.logDebug (ideLogger service) $
@@ -160,7 +161,7 @@ createArchive ::
     -> [NormalizedFilePath] -- ^ Module dependencies
     -> [(String, BS.ByteString)] -- ^ Data files
     -> [NormalizedFilePath] -- ^ Interface files
-    -> IO BSL.ByteString
+    -> IO (Zip.ZipArchive ())
 createArchive PackageConfigFields {..} pkgId dalf dalfDependencies fileDependencies dataFiles ifaces
  = do
     -- Reads all module source files, and pairs paths (with changed prefix)
@@ -198,10 +199,11 @@ createArchive PackageConfigFields {..} pkgId dalf dalfDependencies fileDependenc
             , manifestHeader dalfName (dalfName : map fst dependencies)) :
             (dalfName, dalf) :
             srcFiles ++ ifaceFaceFiles ++ dependencies ++ dataFiles'
-        mkEntry (filePath, content) = Zip.toEntry filePath 0 content
-        zipArchive =
-            foldr (Zip.addEntryToArchive . mkEntry) Zip.emptyArchive allFiles
-    pure $ Zip.fromArchive zipArchive
+        zipArchive = do
+            forM_ allFiles $ \(file, content) -> do
+                entry <- Zip.mkEntrySelector file
+                Zip.sinkEntry Zip.Deflate (sourceLazy content) entry
+    pure zipArchive
   where
     pkgName = fullPkgName pName pVersion pkgId
     modRoot = toNormalizedFilePath $ takeDirectory pMain

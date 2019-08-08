@@ -452,6 +452,7 @@ bind(
 )
 
 load("@ai_formation_hazel//:hazel.bzl", "hazel_custom_package_github", "hazel_custom_package_hackage", "hazel_default_extra_libs", "hazel_repositories")
+load("@ai_formation_hazel//tools:mangling.bzl", "hazel_workspace")
 load("//hazel:packages.bzl", "core_packages", "packages")
 load("//bazel_tools:haskell.bzl", "add_extra_packages")
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
@@ -487,6 +488,7 @@ hazel_repositories(
     ),
     exclude_packages = [
         "arx",
+        "bindings-DSL",
         "clock",
         "ghc-paths",
         "streaming-commons",
@@ -506,6 +508,7 @@ hazel_repositories(
         {
             "z": "@com_github_madler_zlib//:z",
             "ffi": "" if is_windows else "@libffi_nix//:ffi",
+            "bz2": "@bzip2//:bz2",
         },
     ),
     ghc_workspaces = {
@@ -595,6 +598,23 @@ hazel_custom_package_hackage(
     build_file = "//3rdparty/haskell:BUILD.zlib",
     sha256 = "0dcc7d925769bdbeb323f83b66884101084167501f11d74d21eb9bc515707fed",
     version = "0.6.2",
+)
+
+hazel_custom_package_hackage(
+    package_name = "bindings-DSL",
+    build_file = "//3rdparty/haskell:BUILD.bindings-DSL",
+    sha256 = "63de32380c68d1cc5e9c7b3622d67832c786da21163ba0c8a4835e6dd169194f",
+    version = "1.0.25",
+)
+
+http_archive(
+    name = hazel_workspace("bzlib-conduit"),
+    build_file = "//3rdparty/haskell:BUILD.bzlib-conduit",
+    sha256 = "eb2c732b3d4ab5f7b367c51eef845e597ade19da52c03ee11954d35b6cfc4128",
+    strip_prefix = "bzlib-conduit-0.3.0.2",
+    urls = ["http://hackage.fpcomplete.com/package/bzlib-conduit-0.3.0.2.tar.gz"],
+    patches = ["@com_github_digital_asset_daml//3rdparty/haskell:bzlib-conduit.patch"],
+    patch_args = ["-p1"],
 )
 
 hazel_custom_package_hackage(
