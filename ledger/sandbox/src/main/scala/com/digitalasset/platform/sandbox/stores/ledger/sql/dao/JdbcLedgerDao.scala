@@ -500,8 +500,7 @@ private class JdbcLedgerDao(
         "command_id" -> (tx.commandId: Option[String]),
         "application_id" -> (tx.applicationId: Option[String]),
         "submitter" -> (tx.submittingParty: Option[String]),
-        "workflow_id" -> tx.workflowId
-          .getOrElse("unspecified workflow"), // TODO: Not allowed to insert an empty string - not a valid ledger string
+        "workflow_id" -> tx.workflowId.getOrElse(""),
         "effective_at" -> tx.ledgerEffectiveTime,
         "recorded_at" -> tx.recordedAt,
         "transaction" -> transactionSerializer
