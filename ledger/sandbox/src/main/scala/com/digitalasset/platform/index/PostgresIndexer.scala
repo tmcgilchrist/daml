@@ -44,8 +44,6 @@ import scalaz.syntax.tag._
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.util.control.NonFatal
-import scala.util.{Failure, Success}
 
 object PostgresIndexer {
   private val logger = LoggerFactory.getLogger(classOf[PostgresIndexer])
@@ -137,24 +135,15 @@ class PostgresIndexer private (
     * Subscribes to an instance of ReadService.
     *
     * @param readService the ReadService to subscribe to
-    * @param onError     callback to signal error during feed processing
-    * @param onComplete  callback fired only once at normal feed termination.
     * @return a handle of IndexFeedHandle or a failed Future
     */
-  override def subscribe(
-      readService: ReadService,
-      onError: Throwable => Unit,
-      onComplete: () => Unit): Future[IndexFeedHandle] = {
+  override def subscribe(readService: ReadService): Future[IndexFeedHandle] = {
     val (killSwitch, completionFuture) = readService
       .stateUpdates(beginAfterExternalOffset.map(Offset.assertFromString))
       .viaMat(KillSwitches.single)(Keep.right[NotUsed, UniqueKillSwitch])
       .mapAsync(1)((handleStateUpdate _).tupled)
       .toMat(Sink.ignore)(Keep.both)
       .run()
-    completionFuture.onComplete {
-      case Failure(NonFatal(t)) => onError(t)
-      case Success(_) => onComplete()
-    }(DEC)
 
     Future.successful(indexHandleFromKillSwitch(killSwitch, completionFuture))
   }
@@ -271,6 +260,10 @@ class PostgresIndexer private (
       completionFuture: Future[Done]): IndexFeedHandle = new IndexFeedHandle {
     override def stop(): Future[akka.Done] = {
       ks.shutdown()
+      completionFuture
+    }
+
+    override def completed(): Future[akka.Done] = {
       completionFuture
     }
   }
