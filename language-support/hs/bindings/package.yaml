@@ -10,6 +10,7 @@ maintainer:          nick.chapman@digitalasset.com
 github:              digital-asset/daml
 
 dependencies:
+- aeson
 - async
 - base >= 4.7 && < 5
 - bytestring
@@ -19,6 +20,7 @@ dependencies:
 - extra
 - mtl
 - grpc-haskell
+- grpc-haskell-core
 - proto3-suite
 - proto3-wire
 - retry

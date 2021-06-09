@@ -26,7 +26,7 @@ package_from_dir() {
         exit 1
     fi
     pushd $dir
-    cabal v2-sdist
+    cabal sdist
     cp dist-newstyle/sdist/*${LIB_VERSION}.tar.gz "$TARGET_DIR/"
     rm -rf cabal.tix dist-newstyle/
     popd
