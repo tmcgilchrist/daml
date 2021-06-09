@@ -134,6 +134,7 @@ custom-setup
 
 library
   default-language: Haskell2010
+  build-tool-depends: proto3-suite:compile-proto-file
   build-depends:
     base,
     bytestring,
